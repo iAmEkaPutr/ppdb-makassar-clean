@@ -85,4 +85,4 @@ if not filtered_df.empty:
     # Render map di Streamlit
     st_folium(m, width=1000, height=600)
 else:
-    st.info("Tidak ada data yang cocok dengan filter.")
+    st.info("Tidak ada data yang cocok sdengan filter.")
