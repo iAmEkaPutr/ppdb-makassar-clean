@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PPDB Makassar - Clean Symbols</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5n/N0aVIE=" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f0f2f5; overflow: hidden; }
+    #sidebar { width: 300px; background: #1a202c; color: white; display: flex; flex-direction: column; flex-shrink: 0; z-index: 1001; }
+    .sidebar-header { padding: 20px; font-size: 1.1rem; font-weight: bold; background: #2d3748; text-align: center; border-bottom: 1px solid #4a5568; }
+    
+    .filter-container { flex-grow: 1; overflow-y: auto; padding: 15px; }
+    .filter-group { margin-bottom: 20px; background: #2d3748; padding: 12px; border-radius: 8px; }
+    .filter-title { font-size: 13px; color: #4299e1; font-weight: bold; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    .filter-item { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; cursor: pointer; }
+    .filter-item input { margin-right: 10px; cursor: pointer; transform: scale(1.2); }
+    
+    .btn-action { font-size: 10px; background: #4a5568; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+
+    #main-content { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .header-bar { padding: 12px 25px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
+    .section { display: none; height: 100%; position: relative; }
+    .section.active { display: block; }
+    #map { height: 100%; width: 100%; background: #e5e7eb; }
+
+    #table-wrapper { height: 100%; overflow: auto; background: white; }
+    table { border-collapse: collapse; width: 100%; font-size: 11px; table-layout: fixed; }
+    th { background: #f7fafc; position: sticky; top: 0; padding: 10px; text-align: left; border-bottom: 2px solid #edf2f7; z-index: 2; }
+    td { padding: 8px; border-bottom: 1px solid #edf2f7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .badge { padding: 2px 5px; border-radius: 3px; font-size: 9px; font-weight: bold; }
+    .badge-lulus { background: #c6f6d5; color: #22543d; }
+    .badge-tidak { background: #fed7d7; color: #822727; }
+
+    #loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: white; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+    <i class="fa fa-spinner fa-spin fa-3x" style="color: #4299e1; margin-bottom: 15px;"></i>
+    <div id="load-text">Menyiapkan Dashboard...</div>
+</div>
+
+<div id="sidebar">
+  <div class="sidebar-header">PPDB MAKASSAR</div>
+  <div style="display:flex;">
+    <div class="menu-item active" style="flex:1; text-align:center; padding:15px; cursor:pointer; background:#2d3748" id="btn-map" onclick="switchSection('map-analys')">MAP</div>
+    <div class="menu-item" style="flex:1; text-align:center; padding:15px; cursor:pointer;" id="btn-data" onclick="switchSection('data-analys')">DATA</div>
+  </div>
+
+  <div class="filter-container">
+    <div class="filter-group">
+      <div class="filter-title">JENJANG 
+        <div><button class="btn-action" onclick="setAll('jenjang', true)">All</button> <button class="btn-action" onclick="setAll('jenjang', false)">None</button></div>
+      </div>
+      <div id="container-jenjang"></div>
+    </div>
+    <div class="filter-group">
+      <div class="filter-title">JALUR 
+        <div><button class="btn-action" onclick="setAll('jalur', true)">All</button> <button class="btn-action" onclick="setAll('jalur', false)">None</button></div>
+      </div>
+      <div id="container-jalur"></div>
+    </div>
+  </div>
+</div>
+
+<div id="main-content">
+  <div class="header-bar">
+    <div id="status" style="font-size: 14px; font-weight: bold; color: #2d3748;">Map Kosong</div>
+    <div style="font-size: 11px; color: #718096;">O = Lulus | X = Tidak Lulus</div>
+  </div>
+  <div id="map-analys" class="section active"><div id="map"></div></div>
+  <div id="data-analys" class="section"><div id="table-wrapper">
+    <table><thead><tr><th>Jenjang</th><th>Jalur</th><th style="width:150px">Sekolah</th><th>ID</th><th>Status</th></tr></thead><tbody id="table-body"></tbody></table>
+  </div></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+
+<script>
+let rawData = [];
+let map;
+let markersLayer = L.layerGroup();
+const schoolColors = {};
+const colors = ['#E53E3E', '#3182CE', '#38A169', '#D69E2E', '#805AD5', '#319795', '#DD6B20', '#00B5D8', '#B794F4', '#F687B3'];
+
+// Custom Canvas Renderer untuk Silang (X)
+L.Canvas.include({
+    _updateCustomCross: function (layer) {
+        if (!this._drawing || layer._empty()) { return; }
+        var p = layer._point,
+            ctx = this._ctx,
+            r = layer._radius;
+
+        ctx.beginPath();
+        ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r);
+        ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r);
+        this._fillStroke(ctx, layer);
+    }
+});
+
+var CustomCross = L.CircleMarker.extend({
+    _updatePath: function () { this._renderer._updateCustomCross(this); }
+});
+
+function initMap() {
+  map = L.map('map', { preferCanvas: true }).setView([-5.14, 119.42], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+  markersLayer.addTo(map);
+}
+
+async function loadData() {
+  try {
+    const res = await fetch('/ppdb.json');
+    if (!res.ok) {
+      throw new Error(`Gagal memuat ppdb.json - status: ${res.status}`);
+    }
+    rawData = await res.json();
+    
+    const schools = [...new Set(rawData.map(d => d.nama_sekolah_tujuan).filter(Boolean))];
+    schools.forEach((s, i) => schoolColors[s] = colors[i % colors.length]);
+    
+    createCheckboxes('jenjang', 'container-jenjang');
+    createCheckboxes('jalur', 'container-jalur');
+    
+    document.getElementById('loading-overlay').style.display = 'none';
+  } catch (err) {
+    console.error('Error memuat data:', err);
+    document.getElementById('load-text').innerText = 'Gagal memuat data PPDB';
+    document.getElementById('loading-overlay').style.background = 'rgba(254, 226, 226, 0.9)';
+  }
+}
+
+function createCheckboxes(key, containerId) {
+  const values = [...new Set(rawData.map(item => item[key]).filter(Boolean))].sort();
+  const container = document.getElementById(containerId);
+  values.forEach(val => {
+    const div = document.createElement('label');
+    div.className = 'filter-item';
+    div.innerHTML = `<input type="checkbox" class="filter-${key}" value="${val}" onchange="applyFilters()"> ${val}`;
+    container.appendChild(div);
+  });
+}
+
+function setAll(key, checked) {
+  document.querySelectorAll(`.filter-${key}`).forEach(c => c.checked = checked);
+  applyFilters();
+}
+
+function applyFilters() {
+  const selectedJenjang = Array.from(document.querySelectorAll('.filter-jenjang:checked')).map(c => c.value);
+  const selectedJalur = Array.from(document.querySelectorAll('.filter-jalur:checked')).map(c => c.value);
+
+  if (selectedJenjang.length === 0 || selectedJalur.length === 0) {
+    markersLayer.clearLayers();
+    document.getElementById('table-body').innerHTML = "";
+    document.getElementById('status').innerText = "Map Kosong";
+    return;
+  }
+
+  const filtered = rawData.filter(d => selectedJenjang.includes(d.jenjang) && selectedJalur.includes(d.jalur));
+  document.getElementById('status').innerText = `Total: ${filtered.length.toLocaleString()} Data`;
+  renderMapFast(filtered);
+  renderTableFast(filtered);
+}
+
+function renderMapFast(data) {
+  markersLayer.clearLayers();
+  
+  data.forEach(m => {
+    const lat = parseFloat(String(m.lintang).replace(',', '.'));
+    const lon = parseFloat(String(m.bujur).replace(',', '.'));
+    const color = schoolColors[m.nama_sekolah_tujuan] || '#666666';
+    
+    if (!isNaN(lat) && !isNaN(lon)) {
+      const isLulus = String(m.status_penerimaan || "").trim().toLowerCase() === 'lulus';
+      let marker;
+
+      if (isLulus) {
+        // O = lingkaran kosong (outline saja)
+        marker = L.circleMarker([lat, lon], {
+          radius: 6,
+          color: color,
+          weight: 3,
+          fillColor: 'transparent',
+          fillOpacity: 0,
+          opacity: 0.9
+        });
+      } else {
+        // X = silang tebal
+        marker = new CustomCross([lat, lon], {
+          radius: 6,
+          color: color,
+          weight: 4,
+          opacity: 0.9,
+          fill: false
+        });
+      }
+
+      marker.addTo(markersLayer).bindPopup(`
+        <b>ID: ${m.pendaftaran_id}</b><br>
+        Status: ${m.status_penerimaan || 'Tidak Lulus'}<br>
+        Sekolah: ${m.nama_sekolah_tujuan || '-'}
+      `);
+    }
+  });
+}
+
+function renderTableFast(data) {
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = "";
+  const CHUNK_SIZE = 400;
+  let index = 0;
+  function chunk() {
+    const end = Math.min(index + CHUNK_SIZE, data.length);
+    let html = '';
+    for (let i = index; i < end; i++) {
+      const item = data[i];
+      const isLulus = String(item.status_penerimaan || "").trim().toLowerCase() === 'lulus';
+      html += `<tr>
+        <td>${item.jenjang || '-'}</td>
+        <td>${item.jalur || '-'}</td>
+        <td>${item.nama_sekolah_tujuan || '-'}</td>
+        <td>${item.pendaftaran_id}</td>
+        <td><span class="badge ${isLulus ? 'badge-lulus' : 'badge-tidak'}">${item.status_penerimaan || 'Tidak Lulus'}</span></td>
+      </tr>`;
+    }
+    tbody.insertAdjacentHTML('beforeend', html);
+    index = end;
+    if (index < data.length) requestAnimationFrame(chunk);
+  }
+  chunk();
+}
+
+function switchSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if(id === 'map-analys') setTimeout(() => map.invalidateSize(), 200);
+}
+
+initMap();
+loadData();
+</script>
+</body>
+</html>
