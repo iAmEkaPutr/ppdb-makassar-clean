@@ -25,7 +25,7 @@ st.markdown("""
 def load_data():
     json_path = "ppdb.json"
     if not os.path.exists(json_path):
-        st.error("File ppdb.json tidak ditemukan di root. Commit & push ulang ke GitHub.")
+        st.error("File ppdb.json tidak ditemukan di root repo. Commit & push ulang.")
         st.stop()
     try:
         df = pd.read_json(json_path)
@@ -52,24 +52,28 @@ with st.sidebar:
     
     st.markdown('<div class="filter-title">JENJANG</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
-    if col1.button("All", use_container_width=True):
-        st.session_state.jenjang = list(df["jenjang"].dropna().unique())
-    if col2.button("None", use_container_width=True):
-        st.session_state.jenjang = []
+    with col1:
+        if st.button("All", key="jenjang_all", use_container_width=True):
+            st.session_state.jenjang = list(df["jenjang"].dropna().unique())
+    with col2:
+        if st.button("None", key="jenjang_none", use_container_width=True):
+            st.session_state.jenjang = []
     
     jenjang_opts = sorted(df["jenjang"].dropna().unique())
-    selected_jenjang = st.multiselect("jenjang", jenjang_opts, default=st.session_state.get("jenjang", []), label_visibility="collapsed")
+    selected_jenjang = st.multiselect("jenjang", jenjang_opts, default=st.session_state.get("jenjang", []), label_visibility="collapsed", key="jenjang_select")
     st.session_state.jenjang = selected_jenjang
     
     st.markdown('<div class="filter-title">JALUR</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
-    if col1.button("All", use_container_width=True):
-        st.session_state.jalur = list(df["jalur"].dropna().unique())
-    if col2.button("None", use_container_width=True):
-        st.session_state.jalur = []
+    with col1:
+        if st.button("All", key="jalur_all", use_container_width=True):
+            st.session_state.jalur = list(df["jalur"].dropna().unique())
+    with col2:
+        if st.button("None", key="jalur_none", use_container_width=True):
+            st.session_state.jalur = []
     
     jalur_opts = sorted(df["jalur"].dropna().unique())
-    selected_jalur = st.multiselect("jalur", jalur_opts, default=st.session_state.get("jalur", []), label_visibility="collapsed")
+    selected_jalur = st.multiselect("jalur", jalur_opts, default=st.session_state.get("jalur", []), label_visibility="collapsed", key="jalur_select")
     st.session_state.jalur = selected_jalur
 
 # Filter
@@ -83,7 +87,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Tab
+# Tabs
 tab_map, tab_data = st.tabs(["MAP", "DATA"])
 
 with tab_map:
@@ -92,34 +96,30 @@ with tab_map:
     elif filtered.empty:
         st.info("Tidak ada data yang cocok dengan filter.")
     else:
-        # Generate data untuk JS
+        # Prepare data for JS
         data_points = []
         for _, row in filtered.iterrows():
-            lat = row["lintang"]
-            lon = row["bujur"]
-            id_ = row["pendaftaran_id"]
-            status = row.get("status_penerimaan", "Tidak Lulus")
-            sekolah = row["nama_sekolah_tujuan"]
-            color = school_colors.get(sekolah, "#666666")
-            is_lulus = status.lower() == "lulus"
-            
             data_points.append({
-                "lat": lat, "lon": lon,
-                "id": id_, "status": status, "sekolah": sekolah,
-                "color": color, "isLulus": is_lulus
+                "lat": row["lintang"],
+                "lon": row["bujur"],
+                "id": row["pendaftaran_id"],
+                "status": row.get("status_penerimaan", "Tidak Lulus"),
+                "sekolah": row["nama_sekolah_tujuan"],
+                "color": school_colors.get(row["nama_sekolah_tujuan"], "#666666"),
+                "lulus": row.get("status_penerimaan", "").lower() == "lulus"
             })
         
-        # Embed Leaflet JS + data
-        html_code = f"""
-        <div id="map" style="height: 650px;"></div>
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+        # Leaflet JS full
+        html_map = f"""
+        <div id="map" style="height: 650px; width: 100%;"></div>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
         
         <script>
-        const map = L.map('map').setView([-5.14, 119.42], 12);
+        const map = L.map('map', {{preferCanvas: true}}).setView([-5.14, 119.42], 12);
         L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
         
         const markers = L.markerClusterGroup({{maxClusterRadius: 40, disableClusteringAtZoom: 15}});
@@ -128,31 +128,39 @@ with tab_map:
         const data = {json.dumps(data_points)};
         
         data.forEach(p => {{
-            const marker = L.circleMarker([p.lat, p.lon], {{
-                radius: 6,
-                color: p.color,
-                weight: p.isLulus ? 3 : 4,
-                fill: false,
-                opacity: 0.9
-            }});
-            
-            if (!p.isLulus) {{
-                // Custom X untuk tidak lulus
-                marker.bindTooltip('X', {{permanent: true, direction: 'center', className: 'marker-x'}});
+            let marker;
+            if (p.lulus) {{
+                // O = circle outline
+                marker = L.circleMarker([p.lat, p.lon], {{
+                    radius: 6,
+                    color: p.color,
+                    weight: 3,
+                    fillOpacity: 0,
+                    opacity: 0.9
+                }});
+            }} else {{
+                // X = custom cross
+                marker = L.circleMarker([p.lat, p.lon], {{
+                    radius: 6,
+                    color: p.color,
+                    weight: 4,
+                    fillOpacity: 0,
+                    opacity: 0.9
+                }});
+                marker.bindTooltip('X', {{permanent: true, direction: 'center', className: 'cross-tooltip'}});
             }}
             
             marker.bindPopup(`<b>ID:</b> ${{p.id}}<br><b>Status:</b> ${{p.status}}<br><b>Sekolah:</b> ${{p.sekolah}}`);
             markers.addLayer(marker);
         }});
         
-        // CSS untuk X
         const style = document.createElement('style');
-        style.innerHTML = '.marker-x {{ font-size: 16px; font-weight: bold; color: inherit; }}';
+        style.innerHTML = '.cross-tooltip {{ font-size: 18px; font-weight: bold; color: inherit; background: transparent; border: none; box-shadow: none; }}';
         document.head.appendChild(style);
         </script>
         """
         
-        st.components.v1.html(html_code, height=650)
+        st.components.v1.html(html_map, height=650)
 
 with tab_data:
     if filtered.empty:
@@ -165,4 +173,4 @@ with tab_data:
         
         df_show = filtered[["jenjang", "jalur", "nama_sekolah_tujuan", "pendaftaran_id", "status_penerimaan"]].copy()
         df_show["Status"] = df_show["status_penerimaan"].apply(badge)
-        st.markdown(df_show.to_html(escape=False, index=False), unsafe_allow_html=True)
+        st.markdown(df_show.to_html(escape=False, index=False), unsafe_allow_html=True) 
