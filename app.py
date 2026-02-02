@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import os
 
-# Config
+# Config halaman
 st.set_page_config(page_title="PPDB Makassar", layout="wide", initial_sidebar_state="expanded")
 
 # CSS mirip app HTML lama
@@ -44,19 +44,19 @@ colors = ['#E53E3E', '#3182CE', '#38A169', '#D69E2E', '#805AD5', '#319795', '#DD
 school_unique = df["nama_sekolah_tujuan"].unique()
 school_colors = {s: colors[i % len(colors)] for i, s in enumerate(school_unique)}
 
-# Sidebar
+# Sidebar filter
 with st.sidebar:
     st.markdown('<div class="sidebar-header">PPDB MAKASSAR</div>', unsafe_allow_html=True)
     
-    tab_choice = st.radio("Tampilan", ["MAP", "DATA"], horizontal=True, label_visibility="collapsed")
+    view_mode = st.radio("Tampilan", ["MAP", "DATA"], horizontal=True, label_visibility="collapsed")
     
     st.markdown('<div class="filter-title">JENJANG</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("All", key="jenjang_all", use_container_width=True):
+        if st.button("All", key="jenjang_all_btn", use_container_width=True):
             st.session_state.jenjang = list(df["jenjang"].dropna().unique())
     with col2:
-        if st.button("None", key="jenjang_none", use_container_width=True):
+        if st.button("None", key="jenjang_none_btn", use_container_width=True):
             st.session_state.jenjang = []
     
     jenjang_opts = sorted(df["jenjang"].dropna().unique())
@@ -66,20 +66,20 @@ with st.sidebar:
     st.markdown('<div class="filter-title">JALUR</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("All", key="jalur_all", use_container_width=True):
+        if st.button("All", key="jalur_all_btn", use_container_width=True):
             st.session_state.jalur = list(df["jalur"].dropna().unique())
     with col2:
-        if st.button("None", key="jalur_none", use_container_width=True):
+        if st.button("None", key="jalur_none_btn", use_container_width=True):
             st.session_state.jalur = []
     
     jalur_opts = sorted(df["jalur"].dropna().unique())
     selected_jalur = st.multiselect("jalur", jalur_opts, default=st.session_state.get("jalur", []), label_visibility="collapsed", key="jalur_select")
     st.session_state.jalur = selected_jalur
 
-# Filter
+# Filter data
 filtered = df[df["jenjang"].isin(selected_jenjang) & df["jalur"].isin(selected_jalur)]
 
-# Header
+# Header bar
 st.markdown(f"""
 <div class="header-bar">
     <div><strong>Map Kosong</strong> – {len(filtered):,} data setelah filter</div>
@@ -96,7 +96,7 @@ with tab_map:
     elif filtered.empty:
         st.info("Tidak ada data yang cocok dengan filter.")
     else:
-        # Prepare data for JS
+        # Siapkan data untuk JS
         data_points = []
         for _, row in filtered.iterrows():
             data_points.append({
@@ -109,7 +109,7 @@ with tab_map:
                 "lulus": row.get("status_penerimaan", "").lower() == "lulus"
             })
         
-        # Leaflet JS full
+        # Embed Leaflet JS + MarkerCluster (ringan & cepat)
         html_map = f"""
         <div id="map" style="height: 650px; width: 100%;"></div>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -130,7 +130,6 @@ with tab_map:
         data.forEach(p => {{
             let marker;
             if (p.lulus) {{
-                // O = circle outline
                 marker = L.circleMarker([p.lat, p.lon], {{
                     radius: 6,
                     color: p.color,
@@ -139,7 +138,6 @@ with tab_map:
                     opacity: 0.9
                 }});
             }} else {{
-                // X = custom cross
                 marker = L.circleMarker([p.lat, p.lon], {{
                     radius: 6,
                     color: p.color,
@@ -154,6 +152,7 @@ with tab_map:
             markers.addLayer(marker);
         }});
         
+        // Custom CSS untuk X tooltip
         const style = document.createElement('style');
         style.innerHTML = '.cross-tooltip {{ font-size: 18px; font-weight: bold; color: inherit; background: transparent; border: none; box-shadow: none; }}';
         document.head.appendChild(style);
@@ -173,4 +172,4 @@ with tab_data:
         
         df_show = filtered[["jenjang", "jalur", "nama_sekolah_tujuan", "pendaftaran_id", "status_penerimaan"]].copy()
         df_show["Status"] = df_show["status_penerimaan"].apply(badge)
-        st.markdown(df_show.to_html(escape=False, index=False), unsafe_allow_html=True) 
+        st.markdown(df_show.to_html(escape=False, index=False), unsafe_allow_html=True)
